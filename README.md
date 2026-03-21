@@ -117,7 +117,7 @@ DATA_DIR=./pop-email-archive
 ### Start the web server
 
 ```bash
-PYTHONPATH=src python src/main.py
+PYTHONPATH=src python main.py
 ```
 
 Then open **http://localhost:5000** in your browser.
@@ -125,7 +125,7 @@ Then open **http://localhost:5000** in your browser.
 To use a different port, set `PORT` in `.env` or prefix the command:
 
 ```bash
-PORT=8080 PYTHONPATH=src python src/main.py
+PORT=8080 PYTHONPATH=src python main.py
 ```
 
 ---
@@ -148,8 +148,8 @@ Use the **Fetch Emails** button in the nav bar to pull new messages from Gmail a
 ```
 .
 ├── pop-email-archive/      # Archive directory (gitignored, mounted into Docker)
+├── main.py                 # Entry point — starts the web server
 ├── src/
-│   ├── main.py             # Entry point — starts the web server
 │   ├── config.py           # Loads settings from .env
 │   ├── fetcher.py          # POP3 fetch & archive logic
 │   ├── email_parser.py     # Parses raw RFC-822 messages into JSON

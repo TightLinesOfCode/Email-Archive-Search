@@ -18,4 +18,4 @@ ENV PYTHONPATH=/app/src
 ENV PORT=5000
 EXPOSE ${PORT}
 
-CMD ["python", "src/main.py"]
+CMD ["python", "main.py"]
