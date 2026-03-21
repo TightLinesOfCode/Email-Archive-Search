@@ -1,0 +1,8 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    ports:
+      - "${PORT:-5000}:${PORT:-5000}"
+    volumes:
+      - ${LOCAL_MACHINE_ARCHIVE_DIR:-./pop-email-archive}:/pop-email-archive

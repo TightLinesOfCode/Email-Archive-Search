@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Stats & Index — POP Email Archive{% endblock %}
+
+{% block content %}
+
+{# ── Archive Heuristics ─────────────────────────────────────────────────── #}
+<div class="card">
+  <h1>Archive Overview</h1>
+
+  {% if stats.total == 0 %}
+  <div class="empty">
+    <strong>No emails archived yet.</strong>
+    <p>Click <strong>Fetch Emails</strong> in the nav bar to download messages from Gmail.</p>
+  </div>
+  {% else %}
+  <div class="stats-grid">
+
+    <div class="stat-box">
+      <div class="stat-value">{{ stats.total }}</div>
+      <div class="stat-label">Emails archived</div>
+    </div>
+
+    <div class="stat-box">
+      <div class="stat-value">{{ stats.date_from or '—' }}</div>
+      <div class="stat-label">Earliest email</div>
+    </div>
+
+    <div class="stat-box">
+      <div class="stat-value">{{ stats.date_to or '—' }}</div>
+      <div class="stat-label">Latest email</div>
+    </div>
+
+    <div class="stat-box">
+      <div class="stat-value">{{ stats.with_attachments }}</div>
+      <div class="stat-label">Emails with attachments</div>
+    </div>
+
+    <div class="stat-box">
+      <div class="stat-value">{{ stats.total_attachments }}</div>
+      <div class="stat-label">Total attachments</div>
+    </div>
+
+  </div>
+  {% endif %}
+</div>
+
+{# ── Index Management ───────────────────────────────────────────────────── #}
+<div class="card">
+  <h1>Search Index</h1>
+
+  {% if status.exists %}
+  <div class="status-bar">
+    Current index: <strong>{{ status.type }}</strong> &mdash;
+    {{ status.count }} email(s) indexed
+    {% if status.created_at %}
+      &mdash; built {{ status.created_at[:10] }}
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="status-bar">No index exists yet. Create one below to enable search.</div>
+  {% endif %}
+
+  {% if result %}
+  <div class="flash success">
+    Indexed {{ result.indexed }} email(s) as a
+    <strong>{{ 'comprehensive' if result.comprehensive else 'simple' }}</strong> index.
+    {% if result.errors %}
+      {{ result.errors | length }} error(s) encountered.
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form method="POST">
+    <h2>Create Index</h2>
+    <div class="index-options">
+
+      <label class="index-card">
+        <div><input type="radio" name="type" value="simple" checked> <strong>Simple</strong></div>
+        <p style="margin-top:.5rem">
+          Indexes subject line, sender name and address, and recipients.
+          Fast to build and uses minimal storage. Good for finding emails
+          by who sent them or what they're about.
+        </p>
+      </label>
+
+      <label class="index-card">
+        <div><input type="radio" name="type" value="comprehensive"> <strong>Comprehensive</strong></div>
+        <p style="margin-top:.5rem">
+          Indexes everything in the simple index <em>plus</em> the full
+          body text of each email and attachment filenames. Takes longer
+          to build but lets you search inside the content of emails.
+        </p>
+      </label>
+
+    </div>
+
+    <button type="submit" class="btn btn-primary">Build Index</button>
+    {% if status.exists %}
+    <span style="font-size:12px;color:#9da5bb;margin-left:.75rem">
+      This will replace the existing {{ status.type }} index.
+    </span>
+    {% endif %}
+  </form>
+</div>
+
+<style>
+  .stats-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.25rem;
+  }
+  .stat-box {
+    flex: 1;
+    min-width: 140px;
+    background: #f4f5f7;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    text-align: center;
+  }
+  .stat-value {
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: #1e2235;
+    line-height: 1.2;
+  }
+  .stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #9da5bb;
+    margin-top: 0.3rem;
+  }
+</style>
+
+{% endblock %}

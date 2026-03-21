@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Index — POP Email Archive{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>Search Index</h1>
+
+  {% if status.exists %}
+  <div class="status-bar">
+    Current index: <strong>{{ status.type }}</strong> &mdash;
+    {{ status.count }} email(s) indexed
+    {% if status.created_at %}
+      &mdash; built {{ status.created_at[:10] }}
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="status-bar">No index exists yet. Create one below to enable search.</div>
+  {% endif %}
+
+  {% if result %}
+  <div class="flash success">
+    Indexed {{ result.indexed }} email(s) as a
+    <strong>{{ 'comprehensive' if result.comprehensive else 'simple' }}</strong> index.
+    {% if result.errors %}
+      {{ result.errors | length }} error(s) encountered.
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form method="POST">
+    <h2>Create Index</h2>
+    <div class="index-options">
+
+      <label class="index-card">
+        <div><input type="radio" name="type" value="simple" checked> <strong>Simple</strong></div>
+        <p style="margin-top:.5rem">
+          Indexes subject line, sender name and address, and recipients.
+          Fast to build and uses minimal storage. Good for finding emails
+          by who sent them or what they're about.
+        </p>
+      </label>
+
+      <label class="index-card">
+        <div><input type="radio" name="type" value="comprehensive"> <strong>Comprehensive</strong></div>
+        <p style="margin-top:.5rem">
+          Indexes everything in the simple index <em>plus</em> the full
+          body text of each email and attachment filenames. Takes longer
+          to build but lets you search inside the content of emails.
+        </p>
+      </label>
+
+    </div>
+
+    <button type="submit" class="btn btn-primary">Build Index</button>
+    {% if status.exists %}
+    <span style="font-size:12px;color:#9da5bb;margin-left:.75rem">
+      This will replace the existing {{ status.type }} index.
+    </span>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}

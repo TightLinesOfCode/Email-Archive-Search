@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Inbox — POP Email Archive{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>Inbox <span class="badge">{{ emails | length }}</span></h1>
+
+  {% if emails %}
+  <table>
+    <thead>
+      <tr>
+        <th style="width:120px">Date</th>
+        <th style="width:220px">From</th>
+        <th>Subject</th>
+        <th style="width:70px;text-align:right">Attach.</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for email in emails %}
+      <tr>
+        <td style="color:#9da5bb;white-space:nowrap">
+          {{ email.date[:10] if email.date else '—' }}
+        </td>
+        <td>
+          <div>{{ email.from.name if email.from and email.from.name }}</div>
+          <div style="color:#9da5bb;font-size:12px">
+            {{ email.from.address if email.from }}
+          </div>
+        </td>
+        <td>
+          <a href="/email/{{ email.id }}">{{ email.subject or '(no subject)' }}</a>
+        </td>
+        <td style="text-align:right">
+          {% if email.has_attachments %}
+            <span class="badge badge-blue">&#128206; {{ email.attachments | length }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <strong>No emails archived yet.</strong>
+    <p>Click <strong>Fetch Emails</strong> in the nav bar to download messages from Gmail.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

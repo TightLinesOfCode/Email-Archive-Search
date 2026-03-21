@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ email.subject or '(no subject)' }} — POP Email Archive{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:1rem">
+  <a href="/" class="btn btn-secondary">&#8592; Back to Inbox</a>
+</div>
+
+<div class="card">
+  <h1>{{ email.subject or '(no subject)' }}</h1>
+
+  <div class="meta-grid">
+    <span class="meta-label">From</span>
+    <span class="meta-value">
+      {% if email.from %}
+        {% if email.from.name %}<strong>{{ email.from.name }}</strong> {% endif %}
+        &lt;{{ email.from.address }}&gt;
+      {% endif %}
+    </span>
+
+    <span class="meta-label">To</span>
+    <span class="meta-value">
+      {{ email.to | map(attribute='address') | join(', ') }}
+    </span>
+
+    {% if email.cc %}
+    <span class="meta-label">CC</span>
+    <span class="meta-value">{{ email.cc | map(attribute='address') | join(', ') }}</span>
+    {% endif %}
+
+    <span class="meta-label">Date</span>
+    <span class="meta-value">{{ email.date }}</span>
+  </div>
+
+  {% if email.has_attachments %}
+  <h2>&#128206; Attachments</h2>
+  <div class="attachment-list">
+    {% for att in email.attachments %}
+    <div class="attachment-item">
+      <a href="/email/{{ email.id }}/attachment/{{ att.filename }}"
+         class="btn btn-secondary btn-sm">
+        &#8595; {{ att.filename }}
+      </a>
+      <span class="file-meta">{{ att.content_type }} &mdash; {{ (att.size_bytes / 1024) | round(1) }} KB</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if email.body.html %}
+  <iframe class="email-body-frame"
+          src="/email/{{ email.id }}/body"
+          sandbox="allow-same-origin"
+          onload="this.style.height = (this.contentDocument.body.scrollHeight + 32) + 'px'">
+  </iframe>
+  {% elif email.body.text %}
+  <pre class="email-body-text">{{ email.body.text }}</pre>
+  {% else %}
+  <p style="color:#9da5bb;margin-top:1rem">(no body)</p>
+  {% endif %}
+</div>
+{% endblock %}

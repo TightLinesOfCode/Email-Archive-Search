@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Search — POP Email Archive{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>Search</h1>
+
+  {% if not status.exists %}
+  <div class="flash error">
+    No index found. <a href="/stats">Create an index</a> first to enable search.
+  </div>
+  {% endif %}
+
+  <form method="GET" class="search-bar">
+    <input type="text" name="q" value="{{ query }}"
+           placeholder="Search by subject, sender, recipient{% if status.type == 'comprehensive' %}, or body text{% endif %}…"
+           autofocus>
+    <button type="submit" class="btn btn-primary">Search</button>
+  </form>
+
+  {% if status.exists %}
+  <div class="status-bar">
+    Index type: <strong>{{ status.type }}</strong> &mdash; {{ status.count }} email(s) indexed
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div class="flash error">{{ error }}</div>
+  {% endif %}
+
+  {% if query %}
+    {% if results %}
+    <p class="status-bar">{{ results | length }} result(s) for &ldquo;{{ query }}&rdquo;</p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:120px">Date</th>
+          <th style="width:220px">From</th>
+          <th>Subject</th>
+          <th style="width:60px;text-align:right">Attach.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr>
+          <td style="color:#9da5bb;white-space:nowrap">
+            {{ r.date[:10] if r.date else '—' }}
+          </td>
+          <td>
+            <div>{{ r.from_name }}</div>
+            <div style="color:#9da5bb;font-size:12px">{{ r.from_address }}</div>
+          </td>
+          <td>
+            <a href="/email/{{ r.uid }}">{{ r.subject or '(no subject)' }}</a>
+          </td>
+          <td style="text-align:right">
+            {% if r.has_attachments %}
+              <span class="badge badge-blue">&#128206;</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">
+      <strong>No results for &ldquo;{{ query }}&rdquo;</strong>
+      {% if status.type == 'simple' %}
+      <p>Only subject, sender, and recipients are indexed. Try a
+         <a href="/stats">comprehensive index</a> to search inside email bodies.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+  {% endif %}
+
+</div>
+{% endblock %}
