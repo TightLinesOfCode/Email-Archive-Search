@@ -38,7 +38,7 @@ def _parse_address_list(value: str | None) -> list[dict]:
     ]
 
 
-def parse_email(raw: bytes, uid: str) -> tuple[dict, list[tuple[str, bytes]]]:
+def parse_email(raw: bytes, uid: str, folder: str = "") -> tuple[dict, list[tuple[str, bytes]]]:
     """
     Parse raw RFC-822 bytes into a structured dict suitable for JSON serialisation.
 
@@ -97,6 +97,7 @@ def parse_email(raw: bytes, uid: str) -> tuple[dict, list[tuple[str, bytes]]]:
 
     email_dict = {
         "id": uid,
+        "folder": folder,
         "message_id": msg.get("Message-ID", "").strip(),
         "archived_at": archived_at,
         "date": date,

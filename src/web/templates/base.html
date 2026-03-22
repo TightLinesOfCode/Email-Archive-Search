@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}POP Email Archive{% endblock %}</title>
+  <title>{% block title %}Email Archive{% endblock %}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -85,6 +85,7 @@
     .btn-secondary { background: #eef0f4; color: #333; }
     .btn-success   { background: #1f7a4a; color: #fff; }
     .btn-sm { padding: 0.3rem 0.65rem; font-size: 12px; }
+    .btn-danger { background: #dc2626; color: #fff; }
 
     /* ── Flash messages ──────────────────── */
     .flash {
@@ -211,18 +212,140 @@
       color: #9da5bb;
       margin-bottom: 1rem;
     }
+
+    /* ── Delete toolbar ──────────────────── */
+    .delete-toolbar {
+      display: none;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.55rem 0.75rem;
+      background: #e8f0fe;
+      border-radius: 5px;
+      margin-bottom: 0.75rem;
+      font-size: 13px;
+      color: #1e3a8a;
+    }
+    .delete-toolbar.visible { display: flex; }
+
+    /* ── Checkbox column ─────────────────── */
+    th.cb-cell, td.cb-cell {
+      width: 36px;
+      padding: 0.5rem 0.25rem 0.5rem 0.75rem !important;
+    }
+    input[type="checkbox"] { cursor: pointer; accent-color: #2a5bd7; }
+    tbody tr.row-checked td { background: #e8f0fe !important; }
+
+    /* ── Sortable column headers ─────────── */
+    thead th a {
+      color: #9da5bb;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    thead th a:hover { color: #444; text-decoration: none; }
+    thead th a.sort-active { color: #2c2c2c; }
+    .sort-arrow { font-size: 10px; }
+
+    /* ── Clickable rows ───────────────────── */
+    tbody tr.clickable { cursor: pointer; }
+    tbody tr.clickable:hover td { background: #f0f6ff; }
+
+    /* ── Pagination ───────────────────────── */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.25rem;
+      margin-top: 1rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid #f0f2f7;
+      flex-wrap: wrap;
+    }
+    .pagination a, .pagination span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 32px;
+      height: 32px;
+      padding: 0 0.5rem;
+      border-radius: 4px;
+      font-size: 13px;
+      text-decoration: none;
+      color: #555;
+    }
+    .pagination a:hover { background: #f0f2f7; text-decoration: none; }
+    .pagination .pg-current { background: #dbeafe; color: #1e40af; font-weight: 600; }
+    .pagination .pg-disabled { color: #ccc; pointer-events: none; }
+    .pagination .pg-ellipsis { color: #9da5bb; min-width: 20px; }
+
+    /* ── Folder tree ─────────────────────── */
+    .folder-sidebar { width: 210px; flex-shrink: 0; padding: 0.75rem !important; }
+    .folder-tree, .folder-tree ul { list-style: none; padding: 0; margin: 0; }
+    .folder-tree .tree-children { padding-left: 14px; }
+    .folder-tree .tree-children.hidden { display: none; }
+
+    .tree-row {
+      display: flex;
+      align-items: center;
+      border-radius: 5px;
+      margin: 1px 0;
+    }
+    .tree-row:hover { background: #f0f2f7; }
+    .tree-row.active { background: #dbeafe; }
+
+    .tree-link {
+      flex: 1;
+      font-size: 13px;
+      color: #333;
+      text-decoration: none;
+      padding: 0.3rem 0.4rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.4;
+    }
+    .tree-row.active .tree-link { color: #1e40af; font-weight: 600; }
+    .tree-link:hover { text-decoration: none; }
+
+    .tree-group-label {
+      flex: 1;
+      font-size: 11px;
+      font-weight: 700;
+      color: #555;
+      padding: 0.3rem 0.4rem;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .toggle-btn {
+      flex-shrink: 0;
+      width: 20px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #9da5bb;
+      font-size: 8px;
+      transition: transform 0.15s ease;
+    }
+    .toggle-btn.open { transform: rotate(90deg); }
+    .tree-spacer { flex-shrink: 0; width: 20px; }
   </style>
 </head>
 <body>
 
 <nav>
-  <a href="/" class="brand">&#9993; POP Email Archive</a>
+  <a href="/" class="brand">&#9993; Email Archive</a>
   <a href="/"       {% if request.endpoint == 'email_list'  %}class="active"{% endif %}>Inbox</a>
   <a href="/search" {% if request.endpoint == 'search_page' %}class="active"{% endif %}>Search</a>
   <a href="/stats"  {% if request.endpoint == 'stats_page'  %}class="active"{% endif %}>Stats &amp; Index</a>
-  <form method="POST" action="/fetch" style="margin:0">
-    <button class="btn btn-primary btn-sm">&#8595; Fetch Emails</button>
-  </form>
+  <a href="/fetch/preview" class="btn btn-primary btn-sm">&#8595; Fetch Emails</a>
 </nav>
 
 <div class="container">

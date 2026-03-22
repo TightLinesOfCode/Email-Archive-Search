@@ -1,15 +1,18 @@
 {% extends "base.html" %}
-{% block title %}{{ email.subject or '(no subject)' }} — POP Email Archive{% endblock %}
+{% block title %}{{ email.subject or '(no subject)' }} — Email Archive{% endblock %}
 
 {% block content %}
 <div style="margin-bottom:1rem">
-  <a href="/" class="btn btn-secondary">&#8592; Back to Inbox</a>
+  <a href="/?folder={{ email.folder }}" class="btn btn-secondary">&#8592; {{ email.folder }}</a>
 </div>
 
 <div class="card">
   <h1>{{ email.subject or '(no subject)' }}</h1>
 
   <div class="meta-grid">
+    <span class="meta-label">Folder</span>
+    <span class="meta-value"><span class="badge">{{ email.folder }}</span></span>
+
     <span class="meta-label">From</span>
     <span class="meta-value">
       {% if email.from %}
@@ -37,7 +40,7 @@
   <div class="attachment-list">
     {% for att in email.attachments %}
     <div class="attachment-item">
-      <a href="/email/{{ email.id }}/attachment/{{ att.filename }}"
+      <a href="/email/{{ email.folder }}/{{ email.id }}/attachment/{{ att.filename }}"
          class="btn btn-secondary btn-sm">
         &#8595; {{ att.filename }}
       </a>
@@ -49,7 +52,7 @@
 
   {% if email.body.html %}
   <iframe class="email-body-frame"
-          src="/email/{{ email.id }}/body"
+          src="/email/{{ email.folder }}/{{ email.id }}/body"
           sandbox="allow-same-origin"
           onload="this.style.height = (this.contentDocument.body.scrollHeight + 32) + 'px'">
   </iframe>

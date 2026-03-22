@@ -14,6 +14,9 @@ VOLUME ["/pop-email-archive"]
 # Allow modules inside src/ to import each other without a package prefix
 ENV PYTHONPATH=/app/src
 
+# Inside the container the archive is always at the mounted path
+ENV DATA_DIR=/pop-email-archive
+
 # Default port — overridden at runtime via PORT in .env
 ENV PORT=5000
 EXPOSE ${PORT}

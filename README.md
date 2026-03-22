@@ -1,4 +1,4 @@
-# POP Email Archive Search
+# Email Archive Search
 
 Search and archive Gmail messages via POP3. Runs in Docker or directly on your machine.
 

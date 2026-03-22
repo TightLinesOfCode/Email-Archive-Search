@@ -2,7 +2,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 
-from config import ACCOUNT_DIR, EMAILS_DIR
+from config import ACCOUNT_DIR
 
 INDEX_DB = ACCOUNT_DIR / "search.db"
 
@@ -18,7 +18,7 @@ def create_index(comprehensive: bool = False) -> dict:
     """
     Build (or rebuild) the search index from all archived emails.
 
-    Simple:        subject, sender, recipients
+    Simple:        subject, sender, recipients, folder
     Comprehensive: + full body text, attachment filenames
     """
     conn = _connect()
@@ -39,7 +39,8 @@ def create_index(comprehensive: bool = False) -> dict:
 
     cur.execute("""
         CREATE TABLE emails_meta (
-            uid              TEXT PRIMARY KEY,
+            uid              TEXT,
+            folder           TEXT,
             subject          TEXT,
             from_name        TEXT,
             from_address     TEXT,
@@ -47,7 +48,8 @@ def create_index(comprehensive: bool = False) -> dict:
             date             TEXT,
             archived_at      TEXT,
             has_attachments  INTEGER DEFAULT 0,
-            attachment_names TEXT
+            attachment_names TEXT,
+            PRIMARY KEY (folder, uid)
         )
     """)
 
@@ -55,6 +57,7 @@ def create_index(comprehensive: bool = False) -> dict:
         cur.execute("""
             CREATE VIRTUAL TABLE emails_fts USING fts5(
                 uid              UNINDEXED,
+                folder           UNINDEXED,
                 subject,
                 from_name,
                 from_address,
@@ -67,6 +70,7 @@ def create_index(comprehensive: bool = False) -> dict:
         cur.execute("""
             CREATE VIRTUAL TABLE emails_fts USING fts5(
                 uid          UNINDEXED,
+                folder       UNINDEXED,
                 subject,
                 from_name,
                 from_address,
@@ -84,13 +88,15 @@ def create_index(comprehensive: bool = False) -> dict:
     indexed = 0
     errors: list[str] = []
 
-    if EMAILS_DIR.exists():
-        for email_json in sorted(EMAILS_DIR.glob("*/email.json")):
+    if ACCOUNT_DIR.exists():
+        # emails live at ACCOUNT_DIR/<folder>/<uid>/email.json
+        for email_json in sorted(ACCOUNT_DIR.glob("*/*/email.json")):
             try:
                 with open(email_json, encoding="utf-8") as fh:
                     d = json.load(fh)
 
-                uid = d.get("id") or email_json.parent.name
+                uid    = d.get("id") or email_json.parent.name
+                folder = d.get("folder") or email_json.parent.parent.name
                 subject = d.get("subject") or ""
                 from_info = d.get("from") or {}
                 from_name = from_info.get("name") or ""
@@ -106,30 +112,47 @@ def create_index(comprehensive: bool = False) -> dict:
                 body_text = ((d.get("body") or {}).get("text") or "")
 
                 cur.execute(
-                    "INSERT OR REPLACE INTO emails_meta VALUES (?,?,?,?,?,?,?,?,?)",
-                    (uid, subject, from_name, from_address, to_addresses,
+                    "INSERT OR REPLACE INTO emails_meta VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (uid, folder, subject, from_name, from_address, to_addresses,
                      date, archived_at, has_attachments, attachment_names),
                 )
 
                 if comprehensive:
                     cur.execute(
-                        "INSERT INTO emails_fts VALUES (?,?,?,?,?,?,?)",
-                        (uid, subject, from_name, from_address, to_addresses,
-                         body_text, attachment_names),
+                        "INSERT INTO emails_fts VALUES (?,?,?,?,?,?,?,?)",
+                        (uid, folder, subject, from_name, from_address,
+                         to_addresses, body_text, attachment_names),
                     )
                 else:
                     cur.execute(
-                        "INSERT INTO emails_fts VALUES (?,?,?,?,?)",
-                        (uid, subject, from_name, from_address, to_addresses),
+                        "INSERT INTO emails_fts VALUES (?,?,?,?,?,?)",
+                        (uid, folder, subject, from_name, from_address, to_addresses),
                     )
 
                 indexed += 1
             except Exception as e:
-                errors.append(f"{email_json.parent.name}: {e}")
+                errors.append(f"{email_json.parent.parent.name}/{email_json.parent.name}: {e}")
 
     conn.commit()
     conn.close()
     return {"indexed": indexed, "errors": errors, "comprehensive": comprehensive}
+
+
+def delete_from_index(entries: list[tuple[str, str]]) -> None:
+    """Remove (folder, uid) pairs from the search index."""
+    if not INDEX_DB.exists():
+        return
+    conn = _connect()
+    cur = conn.cursor()
+    try:
+        for folder, uid in entries:
+            cur.execute("DELETE FROM emails_meta WHERE folder=? AND uid=?", (folder, uid))
+            cur.execute("DELETE FROM emails_fts  WHERE folder=? AND uid=?", (folder, uid))
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
 
 
 def search(query: str) -> list[dict]:
@@ -141,10 +164,10 @@ def search(query: str) -> list[dict]:
     try:
         cur.execute(
             """
-            SELECT m.uid, m.subject, m.from_name, m.from_address,
+            SELECT m.uid, m.folder, m.subject, m.from_name, m.from_address,
                    m.to_addresses, m.date, m.has_attachments, m.attachment_names
             FROM emails_fts f
-            JOIN emails_meta m ON m.uid = f.uid
+            JOIN emails_meta m ON m.uid = f.uid AND m.folder = f.folder
             WHERE emails_fts MATCH ?
             ORDER BY rank
             """,
@@ -159,27 +182,30 @@ def search(query: str) -> list[dict]:
 
 def archive_stats() -> dict:
     """
-    Scan all archived email.json files and return heuristics:
-    total count, earliest date, latest date, attachment counts.
+    Scan all archived email.json files and return heuristics.
     Does not require the search index to exist.
     """
-    if not EMAILS_DIR.exists():
+    if not ACCOUNT_DIR.exists():
         return {
             "total": 0,
             "date_from": None,
             "date_to": None,
             "with_attachments": 0,
             "total_attachments": 0,
+            "folders": [],
         }
 
     dates = []
     with_attachments = 0
     total_attachments = 0
+    folders: set[str] = set()
 
-    for email_json in EMAILS_DIR.glob("*/email.json"):
+    for email_json in ACCOUNT_DIR.glob("*/*/email.json"):
         try:
             with open(email_json, encoding="utf-8") as fh:
                 d = json.load(fh)
+            folder = d.get("folder") or email_json.parent.parent.name
+            folders.add(folder)
             raw_date = d.get("date") or ""
             if raw_date:
                 dates.append(raw_date)
@@ -196,6 +222,7 @@ def archive_stats() -> dict:
         "date_to": dates[-1][:10] if dates else None,
         "with_attachments": with_attachments,
         "total_attachments": total_attachments,
+        "folders": sorted(folders),
     }
 
 

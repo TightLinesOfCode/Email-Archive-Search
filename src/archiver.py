@@ -1,13 +1,15 @@
 import json
+import shutil
 from pathlib import Path
 
 
-def is_archived(emails_dir: Path, uid: str) -> bool:
-    return (emails_dir / uid / "email.json").exists()
+def is_archived(account_dir: Path, folder: str, uid: str) -> bool:
+    return (account_dir / folder / uid / "email.json").exists()
 
 
 def save_email(
-    emails_dir: Path,
+    account_dir: Path,
+    folder: str,
     uid: str,
     email_dict: dict,
     attachment_files: list[tuple[str, bytes]],
@@ -16,7 +18,7 @@ def save_email(
     Persist an email to disk.
 
     Layout:
-        <emails_dir>/<uid>/
+        <account_dir>/<folder>/<uid>/
             email.json
             attachments/
                 <filename>
@@ -24,7 +26,7 @@ def save_email(
 
     Returns the email directory path.
     """
-    email_dir = emails_dir / uid
+    email_dir = account_dir / folder / uid
     email_dir.mkdir(parents=True, exist_ok=True)
 
     json_path = email_dir / "email.json"
@@ -39,3 +41,12 @@ def save_email(
             (attachments_dir / safe_name).write_bytes(content)
 
     return email_dir
+
+
+def delete_email(account_dir: Path, folder: str, uid: str) -> bool:
+    """Delete an archived email directory. Returns True if it existed."""
+    email_dir = account_dir / folder / uid
+    if email_dir.exists():
+        shutil.rmtree(email_dir)
+        return True
+    return False

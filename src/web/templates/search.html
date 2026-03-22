@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Search — POP Email Archive{% endblock %}
+{% block title %}Search — Email Archive{% endblock %}
 
 {% block content %}
 <div class="card">
@@ -51,7 +51,7 @@
             <div style="color:#9da5bb;font-size:12px">{{ r.from_address }}</div>
           </td>
           <td>
-            <a href="/email/{{ r.uid }}">{{ r.subject or '(no subject)' }}</a>
+            <a href="/email/{{ r.folder }}/{{ r.uid }}">{{ r.subject or '(no subject)' }}</a>
           </td>
           <td style="text-align:right">
             {% if r.has_attachments %}

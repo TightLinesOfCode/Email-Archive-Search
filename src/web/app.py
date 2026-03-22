@@ -12,12 +12,17 @@ from flask import (
     url_for,
 )
 
-from config import EMAILS_DIR
-from fetcher import fetch_and_archive
-from indexer import archive_stats, create_index, index_status, search
+from archiver import delete_email
+from config import ACCOUNT_DIR
+from fetcher import count_new, fetch_and_archive
+from indexer import archive_stats, create_index, delete_from_index, index_status, search
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = "pop-email-archive"
+
+PER_PAGE = 50
+_VALID_SORT  = {"date", "from", "to", "subject"}
+_VALID_ORDER = {"asc", "desc"}
 
 
 # ---------------------------------------------------------------------------
@@ -26,25 +31,107 @@ app.secret_key = "pop-email-archive"
 
 @app.route("/")
 def email_list():
+    folder_filter = request.args.get("folder", "")
+    sort_by = request.args.get("sort", "date")
+    order   = request.args.get("order", "desc")
+    if sort_by not in _VALID_SORT:
+        sort_by = "date"
+    if order not in _VALID_ORDER:
+        order = "desc"
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except ValueError:
+        page = 1
+
     emails = []
-    if EMAILS_DIR.exists():
-        for email_json in EMAILS_DIR.glob("*/email.json"):
+    all_folders_set: set[str] = set()
+    if ACCOUNT_DIR.exists():
+        for email_json in ACCOUNT_DIR.glob("*/*/email.json"):
             try:
                 with open(email_json, encoding="utf-8") as fh:
-                    emails.append(json.load(fh))
+                    data = json.load(fh)
+                folder = data.get("folder") or email_json.parent.parent.name
+                if folder:
+                    all_folders_set.add(folder)
+                if not folder_filter or folder == folder_filter:
+                    emails.append(data)
             except Exception:
                 pass
-    emails.sort(key=lambda e: e.get("date") or "", reverse=True)
-    return render_template("emails.html", emails=emails)
+
+    def _sort_key(e):
+        if sort_by == "from":
+            f = e.get("from") or {}
+            return (f.get("name") or f.get("address") or "").lower()
+        if sort_by == "to":
+            to_list = e.get("to") or []
+            first = to_list[0] if to_list else {}
+            return (first.get("name") or first.get("address") or "").lower()
+        if sort_by == "subject":
+            return (e.get("subject") or "").lower()
+        return e.get("date") or ""
+
+    emails.sort(key=_sort_key, reverse=(order == "desc"))
+
+    all_folders = sorted(all_folders_set)
+
+    total       = len(emails)
+    total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
+    page        = min(page, total_pages)
+    start       = (page - 1) * PER_PAGE
+    page_emails = emails[start:start + PER_PAGE]
+
+    return render_template(
+        "emails.html",
+        emails=page_emails,
+        all_folders=all_folders,
+        active_folder=folder_filter,
+        sort_by=sort_by,
+        order=order,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Delete emails
+# ---------------------------------------------------------------------------
+
+@app.route("/emails/delete", methods=["POST"])
+def delete_emails():
+    selected = request.form.getlist("sel")   # each value is "folder/uid"
+    folder_filter = request.form.get("folder", "")
+    sort_by       = request.form.get("sort", "date")
+    order         = request.form.get("order", "desc")
+    page          = request.form.get("page", "1")
+
+    deleted = 0
+    index_entries: list[tuple[str, str]] = []
+    for item in selected:
+        folder, _, uid = item.partition("/")
+        if folder and uid:
+            if delete_email(ACCOUNT_DIR, folder, uid):
+                deleted += 1
+                index_entries.append((folder, uid))
+
+    if index_entries:
+        delete_from_index(index_entries)
+
+    if deleted:
+        flash(f"Deleted {deleted} email{'s' if deleted != 1 else ''}.", "success")
+
+    return redirect(url_for(
+        "email_list", folder=folder_filter, sort=sort_by, order=order, page=page
+    ))
 
 
 # ---------------------------------------------------------------------------
 # Email view
 # ---------------------------------------------------------------------------
 
-@app.route("/email/<uid>")
-def view_email(uid):
-    email_json = EMAILS_DIR / uid / "email.json"
+@app.route("/email/<folder>/<uid>")
+def view_email(folder, uid):
+    email_json = ACCOUNT_DIR / folder / uid / "email.json"
     if not email_json.exists():
         return "Email not found", 404
     with open(email_json, encoding="utf-8") as fh:
@@ -52,10 +139,10 @@ def view_email(uid):
     return render_template("email.html", email=data)
 
 
-@app.route("/email/<uid>/body")
-def email_body(uid):
+@app.route("/email/<folder>/<uid>/body")
+def email_body(folder, uid):
     """Serve the HTML body of an email so it can be loaded in an iframe."""
-    email_json = EMAILS_DIR / uid / "email.json"
+    email_json = ACCOUNT_DIR / folder / uid / "email.json"
     if not email_json.exists():
         return "", 404
     with open(email_json, encoding="utf-8") as fh:
@@ -68,29 +155,66 @@ def email_body(uid):
 # Attachment download
 # ---------------------------------------------------------------------------
 
-@app.route("/email/<uid>/attachment/<filename>")
-def download_attachment(uid, filename):
+@app.route("/email/<folder>/<uid>/attachment/<filename>")
+def download_attachment(folder, uid, filename):
     safe_name = Path(filename).name  # prevent path traversal
-    path = EMAILS_DIR / uid / "attachments" / safe_name
+    path = ACCOUNT_DIR / folder / uid / "attachments" / safe_name
     if not path.exists():
         return "Attachment not found", 404
     return send_file(path, as_attachment=True, download_name=safe_name)
 
 
 # ---------------------------------------------------------------------------
-# Fetch
+# Fetch preview + fetch
 # ---------------------------------------------------------------------------
+
+def _estimate_time(count: int) -> str:
+    """Return a human-readable time estimate for fetching `count` emails."""
+    if count == 0:
+        return "instant — nothing to download"
+    secs = count * 2          # ~2 seconds per email is a reasonable middle estimate
+    if secs < 10:
+        return "a few seconds"
+    if secs < 90:
+        return f"about {secs} seconds"
+    mins = round(secs / 60)
+    return f"about {mins} minute{'s' if mins != 1 else ''}"
+
+
+@app.route("/fetch/preview")
+def fetch_preview():
+    try:
+        info = count_new()
+    except Exception as e:
+        flash(f"Could not connect to mail server: {e}", "error")
+        return redirect(url_for("email_list"))
+
+    will_fetch = info["new"]
+    if info["fetch_limit"] is not None:
+        will_fetch = min(will_fetch, info["fetch_limit"])
+
+    return render_template(
+        "fetch_preview.html",
+        info=info,
+        will_fetch=will_fetch,
+        estimate=_estimate_time(will_fetch),
+    )
+
 
 @app.route("/fetch", methods=["POST"])
 def fetch():
     try:
         result = fetch_and_archive()
-        flash(
-            f"Fetch complete — {result['new']} new, "
-            f"{result['skipped']} already archived, "
-            f"{result['deleted']} deleted from server.",
-            "success",
-        )
+        parts = [
+            f"Fetch complete ({result['protocol']}) —",
+            f"{result['new']} new across {result['folders_scanned']} folder(s),",
+            f"{result['skipped']} already archived.",
+        ]
+        if result.get("deleted"):
+            parts.append(f"{result['deleted']} deleted from server.")
+        if result.get("read_only"):
+            parts.append("(read-only: server unchanged)")
+        flash(" ".join(parts), "success")
         for err in result["errors"]:
             flash(err, "error")
     except Exception as e:

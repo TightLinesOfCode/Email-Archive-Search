@@ -1,49 +1,415 @@
 {% extends "base.html" %}
-{% block title %}Inbox — POP Email Archive{% endblock %}
+{% block title %}{% if active_folder %}{{ active_folder }}{% else %}All Mail{% endif %} — Email Archive{% endblock %}
 
 {% block content %}
-<div class="card">
-  <h1>Inbox <span class="badge">{{ emails | length }}</span></h1>
+<div style="display:flex;gap:1.25rem;align-items:flex-start">
 
-  {% if emails %}
-  <table>
-    <thead>
-      <tr>
-        <th style="width:120px">Date</th>
-        <th style="width:220px">From</th>
-        <th>Subject</th>
-        <th style="width:70px;text-align:right">Attach.</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for email in emails %}
-      <tr>
-        <td style="color:#9da5bb;white-space:nowrap">
-          {{ email.date[:10] if email.date else '—' }}
-        </td>
-        <td>
-          <div>{{ email.from.name if email.from and email.from.name }}</div>
-          <div style="color:#9da5bb;font-size:12px">
-            {{ email.from.address if email.from }}
-          </div>
-        </td>
-        <td>
-          <a href="/email/{{ email.id }}">{{ email.subject or '(no subject)' }}</a>
-        </td>
-        <td style="text-align:right">
-          {% if email.has_attachments %}
-            <span class="badge badge-blue">&#128206; {{ email.attachments | length }}</span>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty">
-    <strong>No emails archived yet.</strong>
-    <p>Click <strong>Fetch Emails</strong> in the nav bar to download messages from Gmail.</p>
+  {# ── Folder sidebar ──────────────────────────────────────────────────── #}
+  {% if all_folders %}
+  <div class="card folder-sidebar">
+    <h2 style="margin-bottom:.5rem;padding:0 .4rem">Folders</h2>
+    <ul class="folder-tree" id="folderTree"></ul>
   </div>
+  <script>
+  (function () {
+    const folders    = {{ all_folders | tojson }};
+    const active     = {{ active_folder | tojson }};
+
+    /* ── build tree ─────────────────────────────────────────────────── */
+    // Count how many folders share each underscore-prefix so that a group
+    // is only created when 2+ folders share the same prefix.
+    const prefixCount = {};
+    for (const f of folders) {
+      const i = f.indexOf('_');
+      if (i > 0) {
+        const p = f.slice(0, i);
+        prefixCount[p] = (prefixCount[p] || 0) + 1;
+      }
+    }
+
+    // INBOX belongs under the Gmail group when one exists.
+    const gmailGroup = Object.keys(prefixCount).find(
+      p => p.toLowerCase() === 'gmail' && prefixCount[p] >= 2
+    );
+    if (gmailGroup) prefixCount[gmailGroup]++;   // ensure group is created first pass
+
+    const roots  = [];
+    const groups = {};
+
+    // "All Mail" virtual root entry
+    roots.push({ label: 'All Mail', href: '/', active: !active, children: [] });
+
+    for (const f of folders) {
+      const i      = f.indexOf('_');
+      const prefix = i > 0 ? f.slice(0, i) : null;
+
+      // Place INBOX as the first child of the Gmail group
+      if (f === 'INBOX' && gmailGroup) {
+        if (!groups[gmailGroup]) {
+          const g = { label: gmailGroup, href: null, active: false, children: [] };
+          groups[gmailGroup] = g;
+          roots.push(g);
+        }
+        groups[gmailGroup].children.unshift({
+          label:    'Inbox',
+          href:     '/?folder=INBOX',
+          active:   active === 'INBOX',
+          children: [],
+        });
+        continue;
+      }
+
+      if (prefix && prefixCount[prefix] >= 2) {
+        if (!groups[prefix]) {
+          const g = { label: prefix, href: null, active: false, children: [] };
+          groups[prefix] = g;
+          roots.push(g);
+        }
+        groups[prefix].children.push({
+          label:    f.slice(i + 1),
+          href:     '/?folder=' + encodeURIComponent(f),
+          active:   active === f,
+          children: [],
+        });
+      } else {
+        roots.push({
+          label:    f,
+          href:     '/?folder=' + encodeURIComponent(f),
+          active:   active === f,
+          children: [],
+        });
+      }
+    }
+
+    /* ── render ─────────────────────────────────────────────────────── */
+    function renderNodes(nodes, ul) {
+      for (const node of nodes) {
+        const li = document.createElement('li');
+
+        if (node.children.length > 0) {
+          // Group row (toggle + label)
+          const hasActiveChild = node.children.some(c => c.active);
+          const key    = 'ftree_' + node.label;
+          const isOpen = hasActiveChild || localStorage.getItem(key) !== 'closed';
+
+          const row = document.createElement('div');
+          row.className = 'tree-row';
+
+          const toggle = document.createElement('span');
+          toggle.className = 'toggle-btn' + (isOpen ? ' open' : '');
+          toggle.textContent = '▶';
+
+          const label = document.createElement('span');
+          label.className = 'tree-group-label';
+          label.textContent = node.label;
+
+          const childUl = document.createElement('ul');
+          childUl.className = 'tree-children' + (isOpen ? '' : ' hidden');
+          renderNodes(node.children, childUl);
+
+          function toggleGroup() {
+            childUl.classList.toggle('hidden');
+            const nowHidden = childUl.classList.contains('hidden');
+            toggle.classList.toggle('open', !nowHidden);
+            localStorage.setItem(key, nowHidden ? 'closed' : 'open');
+          }
+          toggle.addEventListener('click', toggleGroup);
+          label.addEventListener('click', toggleGroup);
+
+          row.appendChild(toggle);
+          row.appendChild(label);
+          li.appendChild(row);
+          li.appendChild(childUl);
+
+        } else {
+          // Leaf row (spacer + link)
+          const row = document.createElement('div');
+          row.className = 'tree-row' + (node.active ? ' active' : '');
+
+          const spacer = document.createElement('span');
+          spacer.className = 'tree-spacer';
+
+          const a = document.createElement('a');
+          a.className = 'tree-link';
+          a.href = node.href;
+          a.textContent = node.label;
+
+          row.appendChild(spacer);
+          row.appendChild(a);
+          li.appendChild(row);
+        }
+
+        ul.appendChild(li);
+      }
+    }
+
+    renderNodes(roots, document.getElementById('folderTree'));
+  }());
+  </script>
   {% endif %}
+
+  {# ── Email list ──────────────────────────────────────────────────────── #}
+  <div class="card" style="flex:1;min-width:0">
+
+    {# header row #}
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:1rem">
+      <h1 style="margin:0">
+        {{ active_folder or 'All Mail' }}
+        <span class="badge">{{ total }}</span>
+      </h1>
+      {% if total_pages > 1 %}
+      <span class="status-bar" style="margin:0">
+        Page {{ page }} of {{ total_pages }}
+      </span>
+      {% endif %}
+    </div>
+
+    {# ── helpers: build sort/pagination URLs ── #}
+    {%- macro sort_url(col) -%}
+      {%- set next_ord = 'asc' if (sort_by == col and order == 'desc') else ('desc' if sort_by == col else 'desc') -%}
+      /?folder={{ active_folder }}&sort={{ col }}&order={{ next_ord }}&page=1
+    {%- endmacro -%}
+
+    {%- macro page_url(p) -%}
+      /?folder={{ active_folder }}&sort={{ sort_by }}&order={{ order }}&page={{ p }}
+    {%- endmacro -%}
+
+    {% if emails %}
+    <form method="POST" action="/emails/delete" id="email-form">
+      <input type="hidden" name="folder" value="{{ active_folder }}">
+      <input type="hidden" name="sort"   value="{{ sort_by }}">
+      <input type="hidden" name="order"  value="{{ order }}">
+      <input type="hidden" name="page"   value="{{ page }}">
+
+      {# ── Delete toolbar (hidden until a checkbox is ticked) ── #}
+      <div id="delete-toolbar" class="delete-toolbar">
+        <strong id="sel-count">0</strong> selected
+        <button type="submit" class="btn btn-danger btn-sm"
+                onclick="return confirm('Delete the selected emails from the local archive?\n\nThis only removes your local copies — nothing on the IMAP/POP3 server will be changed or deleted.')">
+          &#128465; Delete
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" id="clear-btn">
+          Cancel
+        </button>
+      </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="cb-cell">
+            <input type="checkbox" id="select-all" title="Select all on this page">
+          </th>
+
+          {# Sent Date #}
+          <th style="width:105px">
+            <a href="{{ sort_url('date') }}"
+               class="{{ 'sort-active' if sort_by == 'date' }}">
+              Sent Date
+              {% if sort_by == 'date' %}
+                <span class="sort-arrow">{{ '↑' if order == 'asc' else '↓' }}</span>
+              {% endif %}
+            </a>
+          </th>
+
+          {# Folder (only when showing all mail) #}
+          {% if not active_folder %}
+          <th style="width:110px">Folder</th>
+          {% endif %}
+
+          {# From #}
+          <th style="width:180px">
+            <a href="{{ sort_url('from') }}"
+               class="{{ 'sort-active' if sort_by == 'from' }}">
+              From
+              {% if sort_by == 'from' %}
+                <span class="sort-arrow">{{ '↑' if order == 'asc' else '↓' }}</span>
+              {% endif %}
+            </a>
+          </th>
+
+          {# To #}
+          <th style="width:160px">
+            <a href="{{ sort_url('to') }}"
+               class="{{ 'sort-active' if sort_by == 'to' }}">
+              To
+              {% if sort_by == 'to' %}
+                <span class="sort-arrow">{{ '↑' if order == 'asc' else '↓' }}</span>
+              {% endif %}
+            </a>
+          </th>
+
+          {# Subject #}
+          <th>
+            <a href="{{ sort_url('subject') }}"
+               class="{{ 'sort-active' if sort_by == 'subject' }}">
+              Subject
+              {% if sort_by == 'subject' %}
+                <span class="sort-arrow">{{ '↑' if order == 'asc' else '↓' }}</span>
+              {% endif %}
+            </a>
+          </th>
+
+          {# Attachments #}
+          <th style="width:60px;text-align:right">&#128206;</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for email in emails %}
+        {%- set email_url = '/email/' ~ email.folder ~ '/' ~ email.id -%}
+        <tr class="clickable" onclick="location.href='{{ email_url }}'">
+
+          <td class="cb-cell" onclick="event.stopPropagation()">
+            <input type="checkbox" class="email-cb"
+                   name="sel" value="{{ email.folder }}/{{ email.id }}">
+          </td>
+
+          <td style="color:#9da5bb;white-space:nowrap;font-size:12px">
+            {{ email.date[:10] if email.date else '—' }}
+          </td>
+
+          {% if not active_folder %}
+          <td>
+            <a href="/?folder={{ email.folder }}" class="badge"
+               onclick="event.stopPropagation()">{{ email.folder }}</a>
+          </td>
+          {% endif %}
+
+          {# From #}
+          <td>
+            {% if email.from %}
+              {% if email.from.name %}
+                <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px"
+                     title="{{ email.from.name }}">{{ email.from.name }}</div>
+                <div style="color:#9da5bb;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px"
+                     title="{{ email.from.address }}">{{ email.from.address }}</div>
+              {% else %}
+                <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px">
+                  {{ email.from.address }}
+                </div>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+
+          {# To #}
+          <td>
+            {%- set to_list = email.to or [] -%}
+            {% if to_list %}
+              {%- set first = to_list[0] -%}
+              <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px"
+                   title="{{ first.name or first.address }}">
+                {{ first.name or first.address }}
+              </div>
+              {% if to_list | length > 1 %}
+                <div style="color:#9da5bb;font-size:11px">+{{ to_list | length - 1 }} more</div>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+
+          {# Subject #}
+          <td>{{ email.subject or '(no subject)' }}</td>
+
+          {# Attachments #}
+          <td style="text-align:right">
+            {% if email.has_attachments %}
+              <span class="badge badge-blue">{{ email.attachments | length }}</span>
+            {% endif %}
+          </td>
+
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </form>
+
+    {# ── Pagination ── #}
+    {% if total_pages > 1 %}
+    <nav class="pagination" aria-label="pagination">
+
+      {# Previous #}
+      {% if page > 1 %}
+        <a href="{{ page_url(page - 1) }}">&#8592;</a>
+      {% else %}
+        <span class="pg-disabled">&#8592;</span>
+      {% endif %}
+
+      {# Page numbers with ellipsis #}
+      {%- set show_first = 1 -%}
+      {%- set show_last  = total_pages -%}
+      {%- for p in range(1, total_pages + 1) -%}
+        {%- if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) -%}
+          {%- if loop.index > 1 -%}
+            {%- set prev_p = loop.index0 -%}
+            {# detect gap: compare p against the previous rendered page #}
+          {%- endif -%}
+          {% if p == page %}
+            <span class="pg-current">{{ p }}</span>
+          {% else %}
+            <a href="{{ page_url(p) }}">{{ p }}</a>
+          {% endif %}
+        {%- elif p == page - 3 or p == page + 3 -%}
+          <span class="pg-ellipsis">&hellip;</span>
+        {%- endif -%}
+      {%- endfor -%}
+
+      {# Next #}
+      {% if page < total_pages %}
+        <a href="{{ page_url(page + 1) }}">&#8594;</a>
+      {% else %}
+        <span class="pg-disabled">&#8594;</span>
+      {% endif %}
+
+    </nav>
+    {% endif %}
+
+    <script>
+    (function () {
+      const selectAll = document.getElementById('select-all');
+      const toolbar   = document.getElementById('delete-toolbar');
+      const selCount  = document.getElementById('sel-count');
+      const clearBtn  = document.getElementById('clear-btn');
+      const cbs       = () => document.querySelectorAll('.email-cb');
+
+      function update() {
+        const all     = cbs();
+        const checked = document.querySelectorAll('.email-cb:checked');
+        const n       = checked.length;
+
+        toolbar.classList.toggle('visible', n > 0);
+        selCount.textContent = n;
+
+        selectAll.checked       = n > 0 && n === all.length;
+        selectAll.indeterminate = n > 0 && n < all.length;
+
+        all.forEach(cb => {
+          cb.closest('tr').classList.toggle('row-checked', cb.checked);
+        });
+      }
+
+      selectAll.addEventListener('change', () => {
+        cbs().forEach(cb => { cb.checked = selectAll.checked; });
+        update();
+      });
+
+      document.getElementById('email-form').addEventListener('change', e => {
+        if (e.target.classList.contains('email-cb')) update();
+      });
+
+      clearBtn.addEventListener('click', () => {
+        cbs().forEach(cb => { cb.checked = false; });
+        selectAll.checked = false;
+        update();
+      });
+    }());
+    </script>
+
+    {% else %}
+    <div class="empty">
+      <strong>No emails archived yet.</strong>
+      <p>Click <strong>Fetch Emails</strong> in the nav bar to download messages from Gmail.</p>
+    </div>
+    {% endif %}
+
+  </div>
+
 </div>
 {% endblock %}

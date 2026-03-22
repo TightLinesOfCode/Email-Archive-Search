@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Fetch Preview — Email Archive{% endblock %}
+
+{% block content %}
+<div style="max-width:540px;margin:0 auto">
+  <div class="card">
+
+    <h1 style="margin-bottom:1.25rem">&#8595; Fetch Emails</h1>
+
+    {# ── Server summary ── #}
+    <table style="margin-bottom:1.25rem">
+      <tbody>
+        <tr>
+          <td class="meta-label" style="width:160px">Protocol</td>
+          <td class="meta-value"><span class="badge">{{ info.protocol }}</span></td>
+        </tr>
+        <tr>
+          <td class="meta-label">Folders scanned</td>
+          <td class="meta-value">{{ info.folders_scanned }}</td>
+        </tr>
+        <tr>
+          <td class="meta-label">Total on server</td>
+          <td class="meta-value">{{ info.total_on_server }}</td>
+        </tr>
+        <tr>
+          <td class="meta-label">Already archived</td>
+          <td class="meta-value">{{ info.already_archived }}</td>
+        </tr>
+        <tr>
+          <td class="meta-label"><strong>New to download</strong></td>
+          <td class="meta-value">
+            <strong>{{ info.new }}</strong>
+            {% if info.fetch_limit is not none and info.new > info.fetch_limit %}
+              <span style="color:#9da5bb;font-size:12px">
+                (limited to {{ info.fetch_limit }} by FETCH_LIMIT)
+              </span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td class="meta-label">Estimated time</td>
+          <td class="meta-value">{{ estimate }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    {# ── Notice ── #}
+    <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:6px;
+                padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:13px;color:#78350f">
+      <strong>Local archive only.</strong>
+      This will download new emails into your local archive.
+      Nothing on your {{ info.protocol }} server will be modified or deleted.
+    </div>
+
+    {% if will_fetch == 0 %}
+    <p style="color:#9da5bb;font-size:13px;margin-bottom:1.25rem">
+      Your archive is already up to date — there is nothing to download.
+    </p>
+    {% endif %}
+
+    {# ── Actions ── #}
+    <div style="display:flex;gap:0.75rem;align-items:center">
+      {% if will_fetch > 0 %}
+      <form method="POST" action="/fetch">
+        <button class="btn btn-primary">
+          &#8595; Download {{ will_fetch }} email{{ 's' if will_fetch != 1 }}
+        </button>
+      </form>
+      {% endif %}
+      <a href="/" class="btn btn-secondary">Cancel</a>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
