@@ -9,7 +9,7 @@ Archive and search your Gmail messages locally. Supports both **IMAP** (all fold
 1. [Set up Gmail access](#gmail-setup) (enable IMAP or POP3, create an App Password)
 2. [Configure your `.env` file](#configuration)
 3. [Run with Docker](#running-in-docker-recommended) or [locally](#running-locally-without-docker)
-4. Open **http://localhost:5000** and click **Fetch Emails**
+4. Use the terminal menu to fetch emails or switch to the web UI
 
 ---
 
@@ -126,23 +126,63 @@ Set `DATA_DIR` in `.env` to a local path (the default `/pop-email-archive` is an
 DATA_DIR=./pop-email-archive
 ```
 
-Start the web server:
+Start the application:
 
 ```bash
 PYTHONPATH=src python main.py
 ```
 
-Then open **http://localhost:5000**. To use a different port:
+This opens an interactive terminal menu:
+
+```
+  1) Fetch        — download new emails into the local archive
+  2) Purge        — delete archived emails from the IMAP server
+  3) Both         — fetch first, then purge
+  4) Switch to Web App
+  5) Exit
+```
+
+Select **Switch to Web App** to start the web server, then open **http://localhost:5000**.
+
+### Command-line arguments
+
+Pass an operation and options directly to skip the interactive menu:
 
 ```bash
-PORT=8080 PYTHONPATH=src python main.py
+PYTHONPATH=src python main.py <operation> [options]
+```
+
+| Argument | Description |
+|---|---|
+| `fetch` \| `purge` \| `both` \| `web` | Operation to run (omit for interactive menu) |
+| `--protocol IMAP\|POP3`, `-p` | Mail protocol (overrides `MAIL_PROTOCOL` env var) |
+| `--date-from YYYY-MM-DD` | Fetch emails on or after this date |
+| `--date-to YYYY-MM-DD` | Fetch emails on or before this date |
+| `--limit N\|ALL` | Max emails to fetch (overrides `FETCH_LIMIT`) |
+| `--delay SECS` | Seconds between fetched emails (overrides `FETCH_DELAY`) |
+| `--purge-from YYYY-MM-DD` | Purge emails on or after this date |
+| `--purge-to YYYY-MM-DD` | Purge emails on or before this date |
+| `--port PORT` | Web app port (overrides `PORT`, default `5000`) |
+| `--yes`, `-y` | Skip all confirmation prompts |
+
+**Examples:**
+
+```bash
+# Fetch all emails from 2024 without prompts
+PYTHONPATH=src python main.py fetch --protocol IMAP --date-from 2024-01-01 --date-to 2024-12-31 --limit ALL --yes
+
+# Purge archived emails from a specific range
+PYTHONPATH=src python main.py purge --purge-from 2023-01-01 --purge-to 2023-12-31 --yes
+
+# Start the web app on a custom port
+PYTHONPATH=src python main.py web --port 8080
 ```
 
 ---
 
 ## CLI (headless, no web server)
 
-Use `fetch_cli.py` to fetch or purge emails from the command line without starting the web app:
+`fetch_cli.py` is a standalone headless tool for fetch/purge without the menu or web app:
 
 ```bash
 PYTHONPATH=src python fetch_cli.py          # interactive prompts
@@ -175,7 +215,7 @@ Use the **Fetch Emails** button in the nav bar to pull new messages from your ma
 
 ```
 .
-├── main.py                 # Web server entry point (prompts for protocol)
+├── main.py                 # Primary entry point — terminal menu + CLI args
 ├── fetch_cli.py            # Headless CLI for fetch / purge without the web app
 ├── src/
 │   ├── config.py           # Loads all settings from .env
