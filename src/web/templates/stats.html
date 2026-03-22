@@ -101,6 +101,14 @@
     </span>
     {% endif %}
   </form>
+
+  {% if status.exists %}
+  <hr style="margin:1.25rem 0;border:none;border-top:1px solid #f0f2f7">
+  <form method="POST" action="/index/delete"
+        onsubmit="return confirm('Delete the search index?\n\nYou can rebuild it at any time. Your archived emails will not be affected.')">
+    <button type="submit" class="btn btn-danger btn-sm">&#128465; Delete Index</button>
+  </form>
+  {% endif %}
 </div>
 
 <style>

@@ -40,8 +40,9 @@
   <div class="attachment-list">
     {% for att in email.attachments %}
     <div class="attachment-item">
-      <a href="/email/{{ email.folder }}/{{ email.id }}/attachment/{{ att.filename }}"
-         class="btn btn-secondary btn-sm">
+      <a href="{{ url_for('download_attachment', folder=email.folder, uid=email.id, filename=att.filename) }}"
+         class="btn btn-secondary btn-sm"
+         onclick="return confirm('Download {{ att.filename | replace("'", "\\'") }} ({{ (att.size_bytes / 1024) | round(1) }} KB)?\n\nOnly open attachments from senders you trust.')">
         &#8595; {{ att.filename }}
       </a>
       <span class="file-meta">{{ att.content_type }} &mdash; {{ (att.size_bytes / 1024) | round(1) }} KB</span>

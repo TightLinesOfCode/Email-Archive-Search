@@ -75,3 +75,40 @@ def fetch_headers(conn: imaplib.IMAP4_SSL | imaplib.IMAP4, uid: str) -> bytes:
     if status != "OK" or not data or data[0] is None:
         raise RuntimeError(f"Failed to fetch headers for UID {uid}")
     return data[0][1]
+
+
+def get_uids_in_date_range(
+    conn: imaplib.IMAP4_SSL | imaplib.IMAP4,
+    folder: str,
+    date_from=None,
+    date_to=None,
+) -> list[str]:
+    """Select a folder (read-write) and return UIDs matching the date range."""
+    status, _data = conn.select(f'"{folder}"', readonly=False)
+    if status != "OK":
+        return []
+    criteria: list[str] = []
+    if date_from:
+        # IMAP SINCE is inclusive; format: DD-Mon-YYYY
+        criteria.append(f"SINCE {date_from.strftime('%d-%b-%Y')}")
+    if date_to:
+        # IMAP BEFORE is exclusive (day after desired end)
+        from datetime import timedelta
+        before = date_to + timedelta(days=1)
+        criteria.append(f"BEFORE {before.strftime('%d-%b-%Y')}")
+    search_arg = " ".join(criteria) if criteria else "ALL"
+    status, data = conn.uid("SEARCH", search_arg)  # type: ignore[arg-type]
+    if status != "OK" or not data or not data[0]:
+        return []
+    raw = data[0].decode()
+    return raw.split() if raw.strip() else []
+
+
+def delete_uid(conn: imaplib.IMAP4_SSL | imaplib.IMAP4, uid: str) -> None:
+    """Mark a message as \\Deleted by UID."""
+    conn.uid("STORE", uid, "+FLAGS", r"(\Deleted)")  # type: ignore[arg-type]
+
+
+def expunge_folder(conn: imaplib.IMAP4_SSL | imaplib.IMAP4) -> None:
+    """Expunge all \\Deleted messages from the currently selected folder."""
+    conn.expunge()

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Purge Server — Email Archive{% endblock %}
+
+{% block content %}
+<div style="max-width:540px;margin:0 auto">
+  <div class="card" style="border:1px solid #fdba74">
+
+    <h1 style="margin-bottom:1.25rem">&#128465; Purge Server</h1>
+
+    {# ── Config context ── #}
+    {% if leave_on_server %}
+    <table style="margin-bottom:1.25rem;font-size:13px">
+      <tbody>
+        <tr>
+          <td class="meta-label" style="width:160px">LEAVE_ON_SERVER</td>
+          <td class="meta-value"><span class="badge badge-blue">true</span></td>
+        </tr>
+        <tr>
+          <td class="meta-label">LEAVE_DAYS</td>
+          <td class="meta-value">
+            {% if leave_days == 0 %}keep forever{% else %}{{ leave_days }} days{% endif %}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    {% endif %}
+
+    {# ── Warning ── #}
+    <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:6px;
+                padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:13px;color:#7c2d12">
+      <strong>Server emails will be permanently deleted.</strong>
+      Only messages already in your local archive with an exactly matching
+      Message-ID will be removed from the IMAP server.
+      <strong>This cannot be undone.</strong>
+    </div>
+
+    {# ── Date range ── #}
+    <div style="display:flex;gap:1rem;margin-bottom:1.25rem;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:.3rem">
+          Sent on or after (optional)
+        </label>
+        <input type="date" id="purge-from" value="{{ date_from }}"
+               style="padding:.4rem .65rem;border:1px solid #d1d5db;border-radius:5px;
+                      font-size:13px;font-family:inherit;width:100%">
+      </div>
+      <div style="flex:1;min-width:180px">
+        <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:.3rem">
+          Sent on or before (optional)
+        </label>
+        <input type="date" id="purge-to" value="{{ date_to }}"
+               style="padding:.4rem .65rem;border:1px solid #d1d5db;border-radius:5px;
+                      font-size:13px;font-family:inherit;width:100%">
+      </div>
+    </div>
+
+    {# ── Confirmation + start ── #}
+    <div>
+      <label style="display:block;font-size:13px;margin-bottom:.5rem">
+        Type <strong>PURGE SERVER</strong> to confirm:
+      </label>
+      <input type="text" id="purge-confirm" autocomplete="off" placeholder="PURGE SERVER"
+             style="padding:.45rem .75rem;border:1px solid #d1d5db;border-radius:5px;
+                    font-size:14px;font-family:inherit;width:100%;max-width:260px;
+                    display:block;margin-bottom:1rem">
+      <div style="display:flex;gap:.75rem;align-items:center">
+        <button id="purge-btn" class="btn btn-danger" disabled>
+          &#128465; Purge Server
+        </button>
+        <a href="/admin" class="btn btn-secondary">Cancel</a>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  const input = document.getElementById('purge-confirm');
+  const btn   = document.getElementById('purge-btn');
+
+  input.addEventListener('input', () => {
+    btn.disabled = input.value.trim() !== 'PURGE SERVER';
+  });
+
+  btn.addEventListener('click', function () {
+    if (input.value.trim() !== 'PURGE SERVER') return;
+    if (!confirm(
+      'This will permanently delete matching emails from your IMAP server.\n\n' +
+      'Only emails already in your local archive with a matching Message-ID will be deleted.\n\n' +
+      'Are you absolutely sure?'
+    )) return;
+
+    const dateFrom = document.getElementById('purge-from').value;
+    const dateTo   = document.getElementById('purge-to').value;
+    const params   = [];
+    if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
+    if (dateTo)   params.push('date_to='   + encodeURIComponent(dateTo));
+    let streamUrl  = '/admin/purge/stream';
+    if (params.length) streamUrl += '?' + params.join('&');
+
+    startPurgeStream(streamUrl);
+  });
+}());
+</script>
+{% endblock %}

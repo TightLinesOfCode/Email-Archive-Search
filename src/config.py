@@ -83,6 +83,8 @@ FETCH_DELAY: float = float(os.environ.get("FETCH_DELAY", "1.0"))
 # ---------------------------------------------------------------------------
 # Infrastructure
 # ---------------------------------------------------------------------------
-DATA_DIR    = Path(os.environ.get("DATA_DIR", "./pop-email-archive"))
-ACCOUNT_DIR = DATA_DIR / EMAIL_ADDRESS   # e.g. ./pop-email-archive/you@gmail.com
+_REPO_ROOT = Path(__file__).resolve().parent.parent   # src/config.py → repo root
+_data_dir_raw = Path(os.environ.get("DATA_DIR", "pop-email-archive"))
+DATA_DIR = _data_dir_raw if _data_dir_raw.is_absolute() else _REPO_ROOT / _data_dir_raw
+ACCOUNT_DIR = DATA_DIR / EMAIL_ADDRESS   # e.g. <repo>/pop-email-archive/you@gmail.com
 # Emails are stored at ACCOUNT_DIR/<folder>/<uid>/email.json

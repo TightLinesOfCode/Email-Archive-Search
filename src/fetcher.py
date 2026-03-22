@@ -193,6 +193,15 @@ def fetch_and_archive(on_progress: Callable | None = None) -> dict:
 # Preview / count (no downloading)
 # ---------------------------------------------------------------------------
 
+def _sample_date(headers_bytes: bytes):
+    """Return a date object from raw header bytes, or None on failure."""
+    try:
+        msg = email_lib.message_from_bytes(headers_bytes)
+        return parsedate_to_datetime(msg.get("Date", "")).date()
+    except Exception:
+        return None
+
+
 def _count_new_imap() -> dict:
     from imap_client import connect, fetch_headers, get_uids, list_folders, sanitize_folder
 
@@ -200,6 +209,7 @@ def _count_new_imap() -> dict:
     new_count = 0
     total_on_server = 0
     folders_scanned = 0
+    server_dates: list = []
     try:
         folders = list_folders(conn)
         for raw_folder in folders:
@@ -208,6 +218,14 @@ def _count_new_imap() -> dict:
             try:
                 uids = get_uids(conn, raw_folder)
                 total_on_server += len(uids)
+
+                # Sample the first and last UID in each folder to bound the server date range
+                samples = ([uids[0], uids[-1]] if len(uids) > 1 else uids[:1])
+                for s_uid in samples:
+                    d = _sample_date(fetch_headers(conn, s_uid))
+                    if d:
+                        server_dates.append(d)
+
                 for uid in uids:
                     if FETCH_DATE_FROM or FETCH_DATE_TO:
                         try:
@@ -229,6 +247,10 @@ def _count_new_imap() -> dict:
         "already_archived": total_on_server - new_count,
         "folders_scanned": folders_scanned,
         "fetch_limit": FETCH_LIMIT,
+        "server_date_from": str(min(server_dates)) if server_dates else None,
+        "server_date_to":   str(max(server_dates)) if server_dates else None,
+        "fetch_date_from":  str(FETCH_DATE_FROM) if FETCH_DATE_FROM else None,
+        "fetch_date_to":    str(FETCH_DATE_TO)   if FETCH_DATE_TO   else None,
     }
 
 
@@ -239,9 +261,18 @@ def _count_new_pop3() -> dict:
     conn = connect()
     new_count = 0
     total_on_server = 0
+    server_dates: list = []
     try:
         uids = get_message_uids(conn)
         total_on_server = len(uids)
+
+        # Sample first and last message for date range
+        samples = ([uids[0], uids[-1]] if len(uids) > 1 else uids[:1])
+        for s_num, _ in samples:
+            d = _sample_date(fetch_headers(conn, s_num))
+            if d:
+                server_dates.append(d)
+
         for msg_num, uid in uids:
             if FETCH_DATE_FROM or FETCH_DATE_TO:
                 try:
@@ -261,6 +292,10 @@ def _count_new_pop3() -> dict:
         "already_archived": total_on_server - new_count,
         "folders_scanned": 1,
         "fetch_limit": FETCH_LIMIT,
+        "server_date_from": str(min(server_dates)) if server_dates else None,
+        "server_date_to":   str(max(server_dates)) if server_dates else None,
+        "fetch_date_from":  str(FETCH_DATE_FROM) if FETCH_DATE_FROM else None,
+        "fetch_date_to":    str(FETCH_DATE_TO)   if FETCH_DATE_TO   else None,
     }
 
 

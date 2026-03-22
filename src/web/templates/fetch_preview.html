@@ -41,6 +41,30 @@
           <td class="meta-label">Estimated time</td>
           <td class="meta-value">{{ estimate }}</td>
         </tr>
+        <tr>
+          <td class="meta-label">Server date range</td>
+          <td class="meta-value">
+            {% if info.server_date_from or info.server_date_to %}
+              {{ info.server_date_from or '?' }}
+              &rarr;
+              {{ info.server_date_to or '?' }}
+            {% else %}
+              <span style="color:#9da5bb">unknown</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <td class="meta-label">Fetch date filter</td>
+          <td class="meta-value">
+            {% if info.fetch_date_from or info.fetch_date_to %}
+              {{ info.fetch_date_from or 'beginning' }}
+              &rarr;
+              {{ info.fetch_date_to or 'today' }}
+            {% else %}
+              <span style="color:#9da5bb">all dates</span>
+            {% endif %}
+          </td>
+        </tr>
       </tbody>
     </table>
 
@@ -61,11 +85,10 @@
     {# ── Actions ── #}
     <div style="display:flex;gap:0.75rem;align-items:center">
       {% if will_fetch > 0 %}
-      <form method="POST" action="/fetch">
-        <button class="btn btn-primary">
-          &#8595; Download {{ will_fetch }} email{{ 's' if will_fetch != 1 }}
-        </button>
-      </form>
+      <button class="btn btn-primary"
+              onclick="startFetchStream({{ will_fetch }}, '{{ estimate }}')">
+        &#8595; Download {{ will_fetch }} email{{ 's' if will_fetch != 1 }}
+      </button>
       {% endif %}
       <a href="/" class="btn btn-secondary">Cancel</a>
     </div>

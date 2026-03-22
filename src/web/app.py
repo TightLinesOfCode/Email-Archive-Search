@@ -1,4 +1,7 @@
 import json
+import queue
+import threading
+from datetime import date
 from pathlib import Path
 
 from flask import (
@@ -9,13 +12,15 @@ from flask import (
     render_template,
     request,
     send_file,
+    stream_with_context,
     url_for,
 )
 
-from archiver import delete_email
-from config import ACCOUNT_DIR
+from archiver import delete_archive, delete_email
+from config import ACCOUNT_DIR, LEAVE_DAYS, LEAVE_ON_SERVER, MAIL_PROTOCOL, READ_ONLY
 from fetcher import count_new, fetch_and_archive
-from indexer import archive_stats, create_index, delete_from_index, index_status, search
+from indexer import archive_stats, create_index, delete_from_index, delete_index, index_status, search
+from purger import purge_server
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = "pop-email-archive"
@@ -23,6 +28,20 @@ app.secret_key = "pop-email-archive"
 PER_PAGE = 50
 _VALID_SORT  = {"date", "from", "to", "subject"}
 _VALID_ORDER = {"asc", "desc"}
+
+# Maps sanitized IMAP folder names to Gmail-style display names
+_FOLDER_LABELS: dict[str, str] = {
+    "INBOX":                 "Inbox",
+    "Gmail_Sent_Mail":       "Sent",
+    "Gmail_Drafts":          "Drafts",
+    "Gmail_Spam":            "Spam",
+    "Gmail_Trash":           "Trash",
+    "Gmail_Chats":           "Chats",
+    "Google_Mail_Sent_Mail": "Sent",
+    "Google_Mail_Drafts":    "Drafts",
+    "Google_Mail_Spam":      "Spam",
+    "Google_Mail_Trash":     "Trash",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -80,11 +99,16 @@ def email_list():
     start       = (page - 1) * PER_PAGE
     page_emails = emails[start:start + PER_PAGE]
 
+    folder_label = (
+        _FOLDER_LABELS.get(folder_filter, folder_filter) if folder_filter else "All Mail"
+    )
+
     return render_template(
         "emails.html",
         emails=page_emails,
         all_folders=all_folders,
         active_folder=folder_filter,
+        folder_label=folder_label,
         sort_by=sort_by,
         order=order,
         page=page,
@@ -155,7 +179,7 @@ def email_body(folder, uid):
 # Attachment download
 # ---------------------------------------------------------------------------
 
-@app.route("/email/<folder>/<uid>/attachment/<filename>")
+@app.route("/email/<folder>/<uid>/attachment/<path:filename>")
 def download_attachment(folder, uid, filename):
     safe_name = Path(filename).name  # prevent path traversal
     path = ACCOUNT_DIR / folder / uid / "attachments" / safe_name
@@ -201,6 +225,49 @@ def fetch_preview():
     )
 
 
+@app.route("/fetch/stream")
+def fetch_stream():
+    """Stream fetch progress as Server-Sent Events."""
+    q: queue.Queue = queue.Queue()
+    result_box: dict = {}
+
+    def run_fetch():
+        def on_progress(n, folder, uid, subject):
+            q.put({"n": n, "folder": folder, "subject": subject or ""})
+        try:
+            result_box["result"] = fetch_and_archive(on_progress=on_progress)
+        except Exception as e:
+            result_box["error"] = str(e)
+        finally:
+            q.put(None)  # sentinel
+
+    threading.Thread(target=run_fetch, daemon=True).start()
+
+    def generate():
+        while True:
+            item = q.get()
+            if item is None:
+                if "error" in result_box:
+                    payload = json.dumps({"error": result_box["error"]})
+                else:
+                    r = result_box.get("result", {})
+                    payload = json.dumps({
+                        "done":    True,
+                        "new":     r.get("new", 0),
+                        "skipped": r.get("skipped", 0),
+                        "errors":  r.get("errors", []),
+                    })
+                yield f"data: {payload}\n\n"
+                break
+            yield f"data: {json.dumps(item)}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.route("/fetch", methods=["POST"])
 def fetch():
     try:
@@ -238,9 +305,131 @@ def stats_page():
     return render_template("stats.html", stats=stats, status=status, result=result)
 
 
+@app.route("/index/delete", methods=["POST"])
+def delete_index_route():
+    delete_index()
+    flash("Search index deleted.", "success")
+    return redirect(url_for("stats_page"))
+
+
 @app.route("/index")
 def index_page():
     return redirect(url_for("stats_page"))
+
+
+# ---------------------------------------------------------------------------
+# Admin
+# ---------------------------------------------------------------------------
+
+@app.route("/admin")
+def admin_page():
+    stats = archive_stats()
+    return render_template(
+        "admin.html",
+        stats=stats,
+        mail_protocol=MAIL_PROTOCOL,
+        read_only=READ_ONLY,
+        leave_on_server=LEAVE_ON_SERVER,
+        leave_days=LEAVE_DAYS,
+    )
+
+
+@app.route("/admin/delete-archive", methods=["POST"])
+def delete_archive_route():
+    confirmation = request.form.get("confirmation", "").strip()
+    if confirmation != "DELETE ALL":
+        flash("Confirmation text did not match. Archive was not deleted.", "error")
+        return redirect(url_for("admin_page"))
+    count = delete_archive(ACCOUNT_DIR)
+    delete_index()
+    flash(f"Archive deleted — {count} email{'s' if count != 1 else ''} removed.", "success")
+    return redirect(url_for("admin_page"))
+
+
+# ---------------------------------------------------------------------------
+# Purge Server
+# ---------------------------------------------------------------------------
+
+def _parse_date_param(name: str) -> date | None:
+    raw = request.args.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+@app.route("/admin/purge")
+def purge_preview():
+    if MAIL_PROTOCOL != "IMAP" or READ_ONLY:
+        flash("Purge Server is only available when using IMAP with READ_ONLY disabled.", "error")
+        return redirect(url_for("admin_page"))
+    date_from = _parse_date_param("date_from")
+    date_to   = _parse_date_param("date_to")
+    return render_template(
+        "purge_server.html",
+        date_from=str(date_from) if date_from else "",
+        date_to=str(date_to)   if date_to   else "",
+        leave_on_server=LEAVE_ON_SERVER,
+        leave_days=LEAVE_DAYS,
+    )
+
+
+@app.route("/admin/purge/stream")
+def purge_stream():
+    """Stream purge progress as Server-Sent Events."""
+    if MAIL_PROTOCOL != "IMAP" or READ_ONLY:
+        return Response(
+            'data: {"error": "Purge not available"}\n\n',
+            mimetype="text/event-stream",
+        )
+
+    date_from = _parse_date_param("date_from")
+    date_to   = _parse_date_param("date_to")
+
+    q: queue.Queue = queue.Queue()
+    result_box: dict = {}
+
+    def run_purge():
+        def on_progress(n, folder, uid, _subject):
+            q.put({"n": n, "folder": folder, "uid": uid})
+        try:
+            result_box["result"] = purge_server(
+                date_from=date_from,
+                date_to=date_to,
+                on_progress=on_progress,
+            )
+        except Exception as e:
+            result_box["error"] = str(e)
+        finally:
+            q.put(None)
+
+    threading.Thread(target=run_purge, daemon=True).start()
+
+    def generate():
+        while True:
+            item = q.get()
+            if item is None:
+                if "error" in result_box:
+                    payload = json.dumps({"error": result_box["error"]})
+                else:
+                    r = result_box.get("result", {})
+                    payload = json.dumps({
+                        "done":     True,
+                        "deleted":  r.get("deleted", 0),
+                        "skipped":  r.get("skipped", 0),
+                        "errors":   r.get("errors", []),
+                    })
+                yield f"data: {payload}\n\n"
+                break
+            yield f"data: {json.dumps(item)}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ---------------------------------------------------------------------------

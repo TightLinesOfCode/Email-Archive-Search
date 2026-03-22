@@ -43,6 +43,22 @@ def save_email(
     return email_dir
 
 
+def delete_archive(account_dir: Path) -> int:
+    """
+    Delete every archived email under account_dir.
+    Returns the number of email directories removed.
+    The account_dir itself and any non-email files are left intact.
+    """
+    count = 0
+    if not account_dir.exists():
+        return count
+    for email_dir in account_dir.glob("*/*/"):
+        if (email_dir / "email.json").exists():
+            shutil.rmtree(email_dir)
+            count += 1
+    return count
+
+
 def delete_email(account_dir: Path, folder: str, uid: str) -> bool:
     """Delete an archived email directory. Returns True if it existed."""
     email_dir = account_dir / folder / uid

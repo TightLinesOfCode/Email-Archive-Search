@@ -7,19 +7,34 @@
   {# ── Folder sidebar ──────────────────────────────────────────────────── #}
   {% if all_folders %}
   <div class="card folder-sidebar">
-    <h2 style="margin-bottom:.5rem;padding:0 .4rem">Folders</h2>
     <ul class="folder-tree" id="folderTree"></ul>
   </div>
   <script>
   (function () {
-    const folders    = {{ all_folders | tojson }};
-    const active     = {{ active_folder | tojson }};
+    const folders = {{ all_folders | tojson }};
+    const active  = {{ active_folder | tojson }};
 
-    /* ── build tree ─────────────────────────────────────────────────── */
-    // Count how many folders share each underscore-prefix so that a group
-    // is only created when 2+ folders share the same prefix.
+    // Gmail system folders in the order Gmail shows them, with icons
+    const SYSTEM = [
+      { key: 'INBOX',                 label: 'Inbox',  icon: '📥' },
+      { key: 'Gmail_Sent_Mail',       label: 'Sent',   icon: '📤' },
+      { key: 'Google_Mail_Sent_Mail', label: 'Sent',   icon: '📤' },
+      { key: 'Gmail_Drafts',          label: 'Drafts', icon: '✏️' },
+      { key: 'Google_Mail_Drafts',    label: 'Drafts', icon: '✏️' },
+      { key: 'Gmail_Spam',            label: 'Spam',   icon: '⚠️' },
+      { key: 'Google_Mail_Spam',      label: 'Spam',   icon: '⚠️' },
+      { key: 'Gmail_Trash',           label: 'Trash',  icon: '🗑️' },
+      { key: 'Google_Mail_Trash',     label: 'Trash',  icon: '🗑️' },
+      { key: 'Gmail_Chats',           label: 'Chats',  icon: '💬' },
+    ];
+    const systemKeys = new Set(SYSTEM.map(d => d.key));
+
+    // Anything not a system folder becomes a custom label
+    const customFolders = folders.filter(f => !systemKeys.has(f));
+
+    // Group custom labels by first underscore prefix when 2+ share it
     const prefixCount = {};
-    for (const f of folders) {
+    for (const f of customFolders) {
       const i = f.indexOf('_');
       if (i > 0) {
         const p = f.slice(0, i);
@@ -27,123 +42,130 @@
       }
     }
 
-    // INBOX belongs under the Gmail group when one exists.
-    const gmailGroup = Object.keys(prefixCount).find(
-      p => p.toLowerCase() === 'gmail' && prefixCount[p] >= 2
-    );
-    if (gmailGroup) prefixCount[gmailGroup]++;   // ensure group is created first pass
+    /* ── DOM helpers ── */
+    const ul = document.getElementById('folderTree');
 
-    const roots  = [];
-    const groups = {};
+    function li(className) {
+      const el = document.createElement('li');
+      if (className) el.className = className;
+      return el;
+    }
 
-    // "All Mail" virtual root entry
-    roots.push({ label: 'All Mail', href: '/', active: !active, children: [] });
+    function addLeaf(label, href, isActive, icon) {
+      const item = li('');
+      const row  = document.createElement('div');
+      row.className = 'tree-row' + (isActive ? ' active' : '');
 
-    for (const f of folders) {
-      const i      = f.indexOf('_');
-      const prefix = i > 0 ? f.slice(0, i) : null;
+      const iconEl = document.createElement('span');
+      iconEl.className = icon ? 'folder-icon' : 'tree-spacer';
+      if (icon) iconEl.textContent = icon;
 
-      // Place INBOX as the first child of the Gmail group
-      if (f === 'INBOX' && gmailGroup) {
-        if (!groups[gmailGroup]) {
-          const g = { label: gmailGroup, href: null, active: false, children: [] };
-          groups[gmailGroup] = g;
-          roots.push(g);
-        }
-        groups[gmailGroup].children.unshift({
-          label:    'Inbox',
-          href:     '/?folder=INBOX',
-          active:   active === 'INBOX',
-          children: [],
-        });
-        continue;
+      const a = document.createElement('a');
+      a.className   = 'tree-link';
+      a.href        = href;
+      a.textContent = label;
+
+      row.appendChild(iconEl);
+      row.appendChild(a);
+      item.appendChild(row);
+      ul.appendChild(item);
+    }
+
+    function addGroup(label, children) {
+      const key       = 'ftree_lbl_' + label;
+      const hasActive = children.some(c => c.active);
+      const isOpen    = hasActive || localStorage.getItem(key) !== 'closed';
+
+      const item    = li('');
+      const row     = document.createElement('div');
+      row.className = 'tree-row';
+
+      const toggle = document.createElement('span');
+      toggle.className  = 'toggle-btn' + (isOpen ? ' open' : '');
+      toggle.textContent = '▶';
+
+      const lbl = document.createElement('span');
+      lbl.className  = 'tree-group-label';
+      lbl.textContent = label;
+
+      const childUl = document.createElement('ul');
+      childUl.className = 'tree-children' + (isOpen ? '' : ' hidden');
+
+      for (const c of children) {
+        const cli  = li('');
+        const crow = document.createElement('div');
+        crow.className = 'tree-row' + (c.active ? ' active' : '');
+        const sp = document.createElement('span');
+        sp.className = 'tree-spacer';
+        const ca = document.createElement('a');
+        ca.className   = 'tree-link';
+        ca.href        = '/?folder=' + encodeURIComponent(c.key);
+        ca.textContent = c.label;
+        crow.appendChild(sp);
+        crow.appendChild(ca);
+        cli.appendChild(crow);
+        childUl.appendChild(cli);
       }
 
-      if (prefix && prefixCount[prefix] >= 2) {
-        if (!groups[prefix]) {
-          const g = { label: prefix, href: null, active: false, children: [] };
-          groups[prefix] = g;
-          roots.push(g);
-        }
-        groups[prefix].children.push({
-          label:    f.slice(i + 1),
-          href:     '/?folder=' + encodeURIComponent(f),
-          active:   active === f,
-          children: [],
-        });
-      } else {
-        roots.push({
-          label:    f,
-          href:     '/?folder=' + encodeURIComponent(f),
-          active:   active === f,
-          children: [],
-        });
+      function toggleGroup() {
+        childUl.classList.toggle('hidden');
+        const nowHidden = childUl.classList.contains('hidden');
+        toggle.classList.toggle('open', !nowHidden);
+        localStorage.setItem(key, nowHidden ? 'closed' : 'open');
+      }
+      toggle.addEventListener('click', toggleGroup);
+      lbl.addEventListener('click', toggleGroup);
+
+      row.appendChild(toggle);
+      row.appendChild(lbl);
+      item.appendChild(row);
+      item.appendChild(childUl);
+      ul.appendChild(item);
+    }
+
+    /* ── Build sidebar ── */
+
+    // All Mail
+    addLeaf('All Mail', '/', !active, '📬');
+
+    // System folders present in the archive
+    const folderSet = new Set(folders);
+    for (const def of SYSTEM) {
+      if (folderSet.has(def.key)) {
+        addLeaf(def.label, '/?folder=' + encodeURIComponent(def.key),
+                active === def.key, def.icon);
       }
     }
 
-    /* ── render ─────────────────────────────────────────────────────── */
-    function renderNodes(nodes, ul) {
-      for (const node of nodes) {
-        const li = document.createElement('li');
+    // Custom labels
+    if (customFolders.length > 0) {
+      const divider = li('tree-divider'); ul.appendChild(divider);
+      const hdr = li('tree-section-header'); hdr.textContent = 'Labels'; ul.appendChild(hdr);
 
-        if (node.children.length > 0) {
-          // Group row (toggle + label)
-          const hasActiveChild = node.children.some(c => c.active);
-          const key    = 'ftree_' + node.label;
-          const isOpen = hasActiveChild || localStorage.getItem(key) !== 'closed';
+      const addedGroups = new Set();
+      const groups = {};
+      for (const f of customFolders) {
+        const i = f.indexOf('_');
+        const prefix = i > 0 ? f.slice(0, i) : null;
+        if (prefix && prefixCount[prefix] >= 2) {
+          if (!groups[prefix]) groups[prefix] = [];
+          groups[prefix].push({ key: f, label: f.slice(i + 1), active: active === f });
+        }
+      }
 
-          const row = document.createElement('div');
-          row.className = 'tree-row';
-
-          const toggle = document.createElement('span');
-          toggle.className = 'toggle-btn' + (isOpen ? ' open' : '');
-          toggle.textContent = '▶';
-
-          const label = document.createElement('span');
-          label.className = 'tree-group-label';
-          label.textContent = node.label;
-
-          const childUl = document.createElement('ul');
-          childUl.className = 'tree-children' + (isOpen ? '' : ' hidden');
-          renderNodes(node.children, childUl);
-
-          function toggleGroup() {
-            childUl.classList.toggle('hidden');
-            const nowHidden = childUl.classList.contains('hidden');
-            toggle.classList.toggle('open', !nowHidden);
-            localStorage.setItem(key, nowHidden ? 'closed' : 'open');
+      for (const f of customFolders) {
+        const i = f.indexOf('_');
+        const prefix = i > 0 ? f.slice(0, i) : null;
+        if (prefix && prefixCount[prefix] >= 2) {
+          if (!addedGroups.has(prefix)) {
+            addedGroups.add(prefix);
+            addGroup(prefix, groups[prefix]);
           }
-          toggle.addEventListener('click', toggleGroup);
-          label.addEventListener('click', toggleGroup);
-
-          row.appendChild(toggle);
-          row.appendChild(label);
-          li.appendChild(row);
-          li.appendChild(childUl);
-
         } else {
-          // Leaf row (spacer + link)
-          const row = document.createElement('div');
-          row.className = 'tree-row' + (node.active ? ' active' : '');
-
-          const spacer = document.createElement('span');
-          spacer.className = 'tree-spacer';
-
-          const a = document.createElement('a');
-          a.className = 'tree-link';
-          a.href = node.href;
-          a.textContent = node.label;
-
-          row.appendChild(spacer);
-          row.appendChild(a);
-          li.appendChild(row);
+          addLeaf(f, '/?folder=' + encodeURIComponent(f), active === f, '🏷️');
         }
-
-        ul.appendChild(li);
       }
     }
-
-    renderNodes(roots, document.getElementById('folderTree'));
   }());
   </script>
   {% endif %}
@@ -154,7 +176,7 @@
     {# header row #}
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:1rem">
       <h1 style="margin:0">
-        {{ active_folder or 'All Mail' }}
+        {{ folder_label }}
         <span class="badge">{{ total }}</span>
       </h1>
       {% if total_pages > 1 %}
@@ -193,7 +215,7 @@
         </button>
       </div>
 
-    <table>
+    <table id="email-table" class="resizable">
       <thead>
         <tr>
           <th class="cb-cell">
@@ -398,6 +420,70 @@
         cbs().forEach(cb => { cb.checked = false; });
         selectAll.checked = false;
         update();
+      });
+    }());
+    </script>
+
+    <script>
+    (function () {
+      const table = document.getElementById('email-table');
+      if (!table) return;
+
+      const STORE_KEY = 'email-col-widths';
+      const ths = Array.from(table.querySelectorAll('thead th'));
+
+      /* ── Restore saved widths ── */
+      const saved = (() => {
+        try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
+        catch (e) { return {}; }
+      })();
+      if (Object.keys(saved).length) {
+        table.style.tableLayout = 'fixed';
+        ths.forEach((th, i) => { if (saved[i]) th.style.width = saved[i]; });
+      }
+
+      function saveWidths() {
+        const w = {};
+        ths.forEach((th, i) => { w[i] = th.offsetWidth + 'px'; });
+        localStorage.setItem(STORE_KEY, JSON.stringify(w));
+      }
+
+      /* ── Add a drag handle to every header cell ── */
+      ths.forEach((th) => {
+        const handle = document.createElement('div');
+        handle.className = 'col-resize-handle';
+        th.appendChild(handle);
+
+        handle.addEventListener('mousedown', e => {
+          e.preventDefault();
+          e.stopPropagation();   // don't trigger sort link
+
+          /* Switch to fixed layout, locking current widths first */
+          if (table.style.tableLayout !== 'fixed') {
+            ths.forEach(h => { h.style.width = h.offsetWidth + 'px'; });
+            table.style.tableLayout = 'fixed';
+          }
+
+          const startX  = e.pageX;
+          const startW  = th.offsetWidth;
+          handle.classList.add('dragging');
+          document.body.style.cursor     = 'col-resize';
+          document.body.style.userSelect = 'none';
+
+          function onMove(e) {
+            th.style.width = Math.max(40, startW + e.pageX - startX) + 'px';
+          }
+          function onUp() {
+            handle.classList.remove('dragging');
+            document.body.style.cursor     = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup',   onUp);
+            saveWidths();
+          }
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup',   onUp);
+        });
       });
     }());
     </script>

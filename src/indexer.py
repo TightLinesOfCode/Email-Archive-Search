@@ -138,6 +138,12 @@ def create_index(comprehensive: bool = False) -> dict:
     return {"indexed": indexed, "errors": errors, "comprehensive": comprehensive}
 
 
+def delete_index() -> None:
+    """Delete the search index database file entirely."""
+    if INDEX_DB.exists():
+        INDEX_DB.unlink()
+
+
 def delete_from_index(entries: list[tuple[str, str]]) -> None:
     """Remove (folder, uid) pairs from the search index."""
     if not INDEX_DB.exists():
